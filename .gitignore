@@ -1,0 +1,7 @@
+node_modules/
+.next/
+out/
+.firebase/
+.env*
+!.env.example
+npm-debug.log*

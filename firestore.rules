@@ -1,0 +1,152 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && exists(
+          /databases/$(database)/documents/admins/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/admins/$(request.auth.uid)
+        ).data.enabled == true;
+    }
+
+    match /admins/{adminId} {
+      allow get: if request.auth != null && request.auth.uid == adminId;
+      allow create: if request.auth != null
+        && request.auth.uid == adminId
+        && request.auth.token.email == 'abisake2710@gmail.com'
+        && request.resource.data.keys().hasOnly(['email', 'enabled'])
+        && request.resource.data.keys().hasAll(['email', 'enabled'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.enabled == true;
+      allow list, update, delete: if false;
+    }
+
+    match /issues/{issueId} {
+      function hasValidShape() {
+        return request.resource.data.keys().hasAll([
+            'imageUrl',
+            'category',
+            'urgency',
+            'description',
+            'department',
+            'address',
+            'latitude',
+            'longitude',
+            'status',
+            'reportedBy',
+            'createdAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'imageUrl',
+            'category',
+            'urgency',
+            'description',
+            'department',
+            'address',
+            'latitude',
+            'longitude',
+            'status',
+            'reportedBy',
+            'createdAt'
+          ]);
+      }
+
+      function validDepartment(category, department) {
+        return (category == 'garbage' && department == 'Sanitation Department')
+          || (category == 'pothole' && department == 'Roads Department')
+          || (category == 'streetlight' && department == 'Electricity Department')
+          || (category == 'water_leak' && department == 'Water Department')
+          || (category == 'safety_hazard' && department == 'Municipal Safety Department')
+          || (category == 'other' && department == 'Municipal Corporation');
+      }
+
+      function validIssue() {
+        return hasValidShape()
+          && request.resource.data.imageUrl is string
+          && request.resource.data.imageUrl == '/api/issues/' + issueId + '/image'
+          && request.resource.data.category in [
+            'garbage',
+            'pothole',
+            'streetlight',
+            'water_leak',
+            'safety_hazard',
+            'other'
+          ]
+          && validDepartment(
+            request.resource.data.category,
+            request.resource.data.department
+          )
+          && request.resource.data.urgency in ['low', 'medium', 'high']
+          && request.resource.data.description is string
+          && request.resource.data.description.size() > 0
+          && request.resource.data.description.size() <= 500
+          && request.resource.data.department is string
+          && request.resource.data.department.size() > 0
+          && request.resource.data.address is string
+          && request.resource.data.address.size() > 0
+          && request.resource.data.address.size() <= 500
+          && request.resource.data.latitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude is number
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180
+          && request.resource.data.status == 'reported'
+          && request.resource.data.reportedBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && existsAfter(
+            /databases/$(database)/documents/issueImages/$(issueId)
+          )
+          && getAfter(
+            /databases/$(database)/documents/issueImages/$(issueId)
+          ).data.reportedBy == request.auth.uid;
+      }
+
+      allow read: if true;
+      allow create: if request.auth != null && validIssue();
+      allow update: if request.auth != null
+        && isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['reported', 'in_progress', 'resolved'];
+      allow delete: if request.auth != null && isAdmin();
+    }
+
+    match /issueImages/{issueId} {
+      function validImage() {
+        return request.resource.data.keys().hasAll([
+            'imageData',
+            'reportedBy',
+            'createdAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'imageData',
+            'reportedBy',
+            'createdAt'
+          ])
+          && request.resource.data.imageData is string
+          && request.resource.data.imageData.size() > 0
+          && request.resource.data.imageData.size() <= 819200
+          && request.resource.data.imageData.matches('^/9j/[A-Za-z0-9+/]+={0,2}$')
+          && request.resource.data.reportedBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && existsAfter(
+            /databases/$(database)/documents/issues/$(issueId)
+          )
+          && getAfter(
+            /databases/$(database)/documents/issues/$(issueId)
+          ).data.reportedBy == request.auth.uid
+          && getAfter(
+            /databases/$(database)/documents/issues/$(issueId)
+          ).data.imageUrl == '/api/issues/' + issueId + '/image';
+      }
+
+      allow read: if true;
+      allow create: if request.auth != null && validImage();
+      allow update: if false;
+      allow delete: if request.auth != null && isAdmin();
+    }
+  }
+}
